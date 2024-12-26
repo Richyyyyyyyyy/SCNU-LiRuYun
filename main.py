@@ -1,0 +1,171 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import ElementNotInteractableException
+from selenium.webdriver.support import expected_conditions as EC
+from datetime import datetime
+from tqdm import tqdm
+import time
+import sys
+
+
+def get_web_driver(_mute=True, _show=True, _wait_time=10):
+    options = webdriver.ChromeOptions()
+    if _mute:
+        options.add_argument("--mute-audio")
+    #service = Service('./chromedriver.exe')
+    _driver = webdriver.Chrome(options)
+
+    # 伪无头模式
+    if not _show:
+        _driver.set_window_position(-2000, -2000)
+
+    # 超时等待时间
+    _driver.implicitly_wait(_wait_time)
+
+    return _driver
+
+def login(_driver, _username, _password):
+    # 跳转到综合平台
+    print(CurrentTime(), "正在加载登陆界面...")
+    _driver.get("https://moodle.scnu.edu.cn/login/index.php")
+    _driver.find_element(By.ID, "ssobtn").click()
+
+    # 登录到砺儒云
+    print(CurrentTime(), "正在登陆...")
+    _driver.find_element(By.ID, "account").send_keys(_username)
+    _driver.find_element(By.ID, "password").send_keys(_password)
+    _driver.find_element(By.ID, "btn-password-login").click()
+    _driver.find_element(By.LINK_TEXT, "确定登录").click()
+
+    # 确定是否成功登录
+    try:
+        h1_element = _driver.find_element(By.CSS_SELECTOR, 'h1.h2.mb-3.mt-3')
+        print(CurrentTime(), "登陆成功!", h1_element.text)
+    except NoSuchElementException:
+        print(CurrentTime(), "登陆失败!请检查页面和账号密码")
+        time.sleep(10)
+        sys.exit(1)
+
+
+def play_course_videos(_driver, _course_id, _videos, _finish_percentage=100):
+    # 进入课程页面
+    _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
+    _driver.implicitly_wait(10)
+    index = 0
+
+    # 遍历播放视频
+    for _video in _videos:
+        index += 1
+        try:
+            _driver.get(_video)
+        except Exception as e:
+            print(CurrentTime(), "当前视频页面加载出现问题:", e)
+            continue
+
+        # 切换到第一个 iframe
+        first_iframe = WebDriverWait(_driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+        _driver.switch_to.frame(first_iframe)
+
+        # 切换到第二个 iframe
+        second_iframe = WebDriverWait(_driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+        _driver.switch_to.frame(second_iframe)
+
+        # 点击播放按钮
+        try:
+            _driver.find_element(By.CLASS_NAME, "h5p-control.h5p-pause.h5p-play").click()
+        except NoSuchElementException and ElementNotInteractableException:
+            print(CurrentTime(), "页面元素处理出错:", _video)
+            continue
+
+        # 切换到主界面
+        _driver.switch_to.default_content()
+
+        # 检查播放进度
+        percentage_value = 0.00
+        with tqdm(total=100, desc=f"[{index}/{len(_videos)}]视频播放进度", ncols=100, unit="%") as pbar:
+            while True:
+                # 获取进度百分比
+                cell_c3 = float(_driver.find_element(By.CLASS_NAME, "cell.c3").text.strip('%'))
+                if cell_c3 != percentage_value:
+                    # 更新进度条
+                    percentage_value = cell_c3
+                    pbar.n = percentage_value
+                    pbar.last_print_n = percentage_value
+                    pbar.update(0)
+
+                # 如果进度超过既定完成进度，则退出
+                if percentage_value > _finish_percentage:
+                    time.sleep(1)
+                    pbar.n = 100.00
+                    pbar.last_print_n = 100.00
+                    pbar.update(0)
+                    break
+                else:
+                    time.sleep(1)
+
+    # 结束播放
+    print(CurrentTime(), "该课程已全部播放完毕")
+
+
+def get_course_videos(_driver, _course_id):
+    # 访问课程页面
+    print(CurrentTime(), "正在进入课程页面...")
+    _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
+
+    # 展开课程列表
+    try:
+        print(CurrentTime(), "正在检测页面状态...")
+        _driver.implicitly_wait(2)
+        btn_open = _driver.find_element(By.CLASS_NAME, "drawer-toggler.drawer-left-toggle.open-nav.d-print-none")
+        btn_open.click()
+        print(CurrentTime(), "正在展开课程列表...")
+        time.sleep(2)
+    except ElementNotInteractableException:
+        pass
+
+    # 爬取视频链接
+    _driver.implicitly_wait(10)
+    print(CurrentTime(), "正在爬取视频链接...")
+    links = _driver.find_elements(By.TAG_NAME, "a")
+    hrefs = []
+    for link in links:
+        href = link.get_attribute("href")
+        if href and "https://moodle.scnu.edu.cn/mod/h5pactivity/view.php" in href:
+            hrefs.append(href)
+
+    # 链接去重显示
+    hrefs = list(set(hrefs))
+    for href in hrefs:
+        print(href)
+    print(CurrentTime(), f"共计找到{len(hrefs)}个视频")
+    return hrefs
+
+
+def CurrentTime():
+    now = datetime.now()
+    return now.strftime("[%H:%M:%S]")
+
+
+if __name__ == "__main__":
+    try:
+        # 用户信息及课程ID
+        username = ""
+        password = ""
+
+        # 目前只支持四史
+        course_id = 16574
+
+        # 实例化浏览器
+        driver = get_web_driver()
+        # 登录到沥儒云平台
+        login(driver, username, password)
+        # 爬取视频链接列表
+        videos = get_course_videos(driver, course_id)
+        # 逐个播放网课视频
+        play_course_videos(driver, course_id, videos, 90)
+
+    except Exception as ex:
+        print("发生了一个错误:", ex)
