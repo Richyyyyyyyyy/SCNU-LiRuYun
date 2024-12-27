@@ -1,4 +1,5 @@
 from selenium import webdriver
+from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
@@ -11,7 +12,7 @@ import time
 import sys
 
 
-def get_web_driver(_mute=True, _show=True, _wait_time=10):
+def get_web_driver(_mute:bool=True, _show_window:bool=True, _wait_time:int=10) -> WebDriver:
     options = webdriver.ChromeOptions()
     if _mute:
         options.add_argument("--mute-audio")
@@ -19,7 +20,7 @@ def get_web_driver(_mute=True, _show=True, _wait_time=10):
     _driver = webdriver.Chrome(options)
 
     # 伪无头模式
-    if not _show:
+    if not _show_window:
         _driver.set_window_position(-2000, -2000)
 
     # 超时等待时间
@@ -27,7 +28,7 @@ def get_web_driver(_mute=True, _show=True, _wait_time=10):
 
     return _driver
 
-def login(_driver, _username, _password):
+def login(_driver:WebDriver, _username:str, _password:str) -> None:
     # 跳转到综合平台
     print(CurrentTime(), "正在加载登陆界面...")
     _driver.get("https://moodle.scnu.edu.cn/login/index.php")
@@ -50,14 +51,14 @@ def login(_driver, _username, _password):
         sys.exit(1)
 
 
-def play_course_videos(_driver, _course_id, _videos, _finish_percentage=100):
+def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str], _finish_percentage:int=100) -> None:
     # 进入课程页面
     _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
     _driver.implicitly_wait(10)
     index = 0
 
     # 遍历播放视频
-    for _video in _videos:
+    for _video in _video_urls:
         index += 1
         try:
             _driver.get(_video)
@@ -85,7 +86,7 @@ def play_course_videos(_driver, _course_id, _videos, _finish_percentage=100):
 
         # 检查播放进度
         percentage_value = 0.00
-        with tqdm(total=100, desc=f"[{index}/{len(_videos)}]视频播放进度", ncols=100, unit="%") as pbar:
+        with tqdm(total=100, desc=f"[{index}/{len(_video_urls)}]视频播放进度", ncols=100, unit="%") as pbar:
             while True:
                 # 获取进度百分比
                 cell_c3 = float(_driver.find_element(By.CLASS_NAME, "cell.c3").text.strip('%'))
@@ -110,7 +111,7 @@ def play_course_videos(_driver, _course_id, _videos, _finish_percentage=100):
     print(CurrentTime(), "该课程已全部播放完毕")
 
 
-def get_course_videos(_driver, _course_id):
+def get_course_videos(_driver, _course_id) -> list[str]:
     # 访问课程页面
     print(CurrentTime(), "正在进入课程页面...")
     _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
@@ -130,21 +131,21 @@ def get_course_videos(_driver, _course_id):
     _driver.implicitly_wait(10)
     print(CurrentTime(), "正在爬取视频链接...")
     links = _driver.find_elements(By.TAG_NAME, "a")
-    hrefs = []
+    video_urls = []
     for link in links:
-        href = link.get_attribute("href")
-        if href and "https://moodle.scnu.edu.cn/mod/h5pactivity/view.php" in href:
-            hrefs.append(href)
+        video_url = link.get_attribute("href")
+        if video_url and "https://moodle.scnu.edu.cn/mod/h5pactivity/view.php" in video_url:
+            video_urls.append(video_url)
 
     # 链接去重显示
-    hrefs = list(set(hrefs))
-    for href in hrefs:
-        print(href)
-    print(CurrentTime(), f"共计找到{len(hrefs)}个视频")
-    return hrefs
+    video_urls = list(set(video_urls))
+    for video_url in video_urls:
+        print(video_url)
+    print(CurrentTime(), f"共计找到{len(video_urls)}个视频")
+    return video_urls
 
 
-def CurrentTime():
+def CurrentTime() -> str:
     now = datetime.now()
     return now.strftime("[%H:%M:%S]")
 
