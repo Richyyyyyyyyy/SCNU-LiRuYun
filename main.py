@@ -6,10 +6,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementNotInteractableException
 from selenium.webdriver.support import expected_conditions as EC
-from datetime import datetime
+from loguru import logger
 from tqdm import tqdm
-import time
-import sys
+from time import sleep
+from sys import exit
 
 
 def get_web_driver(_mute:bool=True, _show_window:bool=True, _wait_time:int=10) -> WebDriver:
@@ -30,12 +30,12 @@ def get_web_driver(_mute:bool=True, _show_window:bool=True, _wait_time:int=10) -
 
 def login(_driver:WebDriver, _username:str, _password:str) -> None:
     # 跳转到综合平台
-    print(CurrentTime(), "正在加载登陆界面...")
+    logger.info("正在加载登陆界面...")
     _driver.get("https://moodle.scnu.edu.cn/login/index.php")
     _driver.find_element(By.ID, "ssobtn").click()
 
     # 登录到砺儒云
-    print(CurrentTime(), "正在登陆...")
+    logger.info("正在登陆...")
     _driver.find_element(By.ID, "account").send_keys(_username)
     _driver.find_element(By.ID, "password").send_keys(_password)
     _driver.find_element(By.ID, "btn-password-login").click()
@@ -44,11 +44,11 @@ def login(_driver:WebDriver, _username:str, _password:str) -> None:
     # 确定是否成功登录
     try:
         h1_element = _driver.find_element(By.CSS_SELECTOR, 'h1.h2.mb-3.mt-3')
-        print(CurrentTime(), "登陆成功!", h1_element.text)
+        logger.info("登陆成功!", h1_element.text)
     except NoSuchElementException:
-        print(CurrentTime(), "登陆失败!请检查页面和账号密码")
-        time.sleep(10)
-        sys.exit(1)
+        logger.critical("登陆失败!请检查页面和账号密码")
+        sleep(10)
+        exit(1)
 
 
 def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str], _finish_percentage:int=100) -> None:
@@ -60,10 +60,11 @@ def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str],
     # 遍历播放视频
     for _video in _video_urls:
         index += 1
+        logger.info(f"视频[{index}/{len(_video_urls)}]正在播放")
         try:
             _driver.get(_video)
         except Exception as e:
-            print(CurrentTime(), "当前视频页面加载出现问题:", e)
+            logger.error("当前视频页面加载出现问题:", e)
             continue
 
         # 切换到第一个 iframe
@@ -78,7 +79,7 @@ def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str],
         try:
             _driver.find_element(By.CLASS_NAME, "h5p-control.h5p-pause.h5p-play").click()
         except NoSuchElementException and ElementNotInteractableException:
-            print(CurrentTime(), "页面元素处理出错:", _video)
+            logger.error("页面元素处理出错:", _video)
             continue
 
         # 切换到主界面
@@ -99,37 +100,38 @@ def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str],
 
                 # 如果进度超过既定完成进度，则退出
                 if percentage_value > _finish_percentage:
-                    time.sleep(1)
+                    sleep(1)
                     pbar.n = 100.00
                     pbar.last_print_n = 100.00
                     pbar.update(0)
+                    logger.info(f"视频[{index}/{len(_video_urls)}]播放完成")
                     break
                 else:
-                    time.sleep(1)
+                    sleep(1)
 
     # 结束播放
-    print(CurrentTime(), "该课程已全部播放完毕")
+    logger.info("该课程已全部播放完毕")
 
 
 def get_course_videos(_driver, _course_id) -> list[str]:
     # 访问课程页面
-    print(CurrentTime(), "正在进入课程页面...")
+    logger.info("正在进入课程页面...")
     _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
 
     # 展开课程列表
     try:
-        print(CurrentTime(), "正在检测页面状态...")
+        logger.info("正在检测页面状态...")
         _driver.implicitly_wait(2)
         btn_open = _driver.find_element(By.CLASS_NAME, "drawer-toggler.drawer-left-toggle.open-nav.d-print-none")
         btn_open.click()
-        print(CurrentTime(), "正在展开课程列表...")
-        time.sleep(2)
+        logger.info("正在展开课程列表...")
+        sleep(2)
     except ElementNotInteractableException:
         pass
 
     # 爬取视频链接
     _driver.implicitly_wait(10)
-    print(CurrentTime(), "正在爬取视频链接...")
+    logger.info("正在爬取视频链接...")
     links = _driver.find_elements(By.TAG_NAME, "a")
     video_urls = []
     for link in links:
@@ -141,32 +143,36 @@ def get_course_videos(_driver, _course_id) -> list[str]:
     video_urls = list(set(video_urls))
     for video_url in video_urls:
         print(video_url)
-    print(CurrentTime(), f"共计找到{len(video_urls)}个视频")
+    logger.info(f"共计找到{len(video_urls)}个视频")
     return video_urls
 
 
-def CurrentTime() -> str:
-    now = datetime.now()
-    return now.strftime("[%H:%M:%S]")
-
-
 if __name__ == "__main__":
-    try:
-        # 用户信息及课程ID
-        username = ""
-        password = ""
+    # 用户信息及课程ID
+    username = ""
+    password = ""
 
-        # 目前只支持四史
-        course_id = 16574
+    # 目前只支持四史
+    course_id = 16574
+
+    try:
+        # 配置日志
+        logger.add("./log/run.log", rotation="1 MB", compression="zip")
+        logger.info("启动程序")
 
         # 实例化浏览器
         driver = get_web_driver()
-        # 登录到沥儒云平台
+
+        # 登录到砺儒云平台
         login(driver, username, password)
+
         # 爬取视频链接列表
         videos = get_course_videos(driver, course_id)
+
         # 逐个播放网课视频
         play_course_videos(driver, course_id, videos, 90)
 
+        logger.info("退出程序")
+
     except Exception as ex:
-        print("发生了一个错误:", ex)
+        logger.exception("发生了一个意料之外的错误:", ex)
