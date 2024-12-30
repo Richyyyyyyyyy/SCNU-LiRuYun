@@ -1,11 +1,11 @@
-from selenium import webdriver
+from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementNotInteractableException
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.expected_conditions import presence_of_element_located
 from loguru import logger
 from tqdm import tqdm
 from time import sleep
@@ -13,11 +13,11 @@ from sys import exit
 
 
 def get_web_driver(_mute:bool=True, _show_window:bool=True, _wait_time:int=10) -> WebDriver:
-    options = webdriver.ChromeOptions()
+    options = ChromeOptions()
     if _mute:
         options.add_argument("--mute-audio")
     #service = Service('./chromedriver.exe')
-    _driver = webdriver.Chrome(options)
+    _driver = Chrome(options)
 
     # 伪无头模式
     if not _show_window:
@@ -68,11 +68,11 @@ def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str],
             continue
 
         # 切换到第一个 iframe
-        first_iframe = WebDriverWait(_driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+        first_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
         _driver.switch_to.frame(first_iframe)
 
         # 切换到第二个 iframe
-        second_iframe = WebDriverWait(_driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+        second_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
         _driver.switch_to.frame(second_iframe)
 
         # 点击播放按钮
