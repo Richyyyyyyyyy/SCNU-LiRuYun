@@ -10,9 +10,10 @@ from loguru import logger
 from tqdm import tqdm
 from time import sleep
 from sys import exit
+from base64 import b64encode, b64decode
 
 
-def get_web_driver(_mute:bool=True, _show_window:bool=True, _wait_time:int=10) -> WebDriver:
+def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
     options = ChromeOptions()
     if _mute:
         options.add_argument("--mute-audio")
@@ -24,7 +25,7 @@ def get_web_driver(_mute:bool=True, _show_window:bool=True, _wait_time:int=10) -
         _driver.set_window_position(-2000, -2000)
 
     # 超时等待时间
-    _driver.implicitly_wait(_wait_time)
+    _driver.implicitly_wait(10)
 
     return _driver
 
@@ -51,12 +52,9 @@ def login(_driver:WebDriver, _username:str, _password:str) -> None:
         exit(1)
 
 
-def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str], _finish_percentage:int=100) -> None:
-    # 进入课程页面
-    _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
-    _driver.implicitly_wait(10)
-    index = 0
+def play_course_videos(_driver:WebDriver, _video_urls:list[str], _finish_percentage:int=100) -> None:
 
+    index = 0
     # 遍历播放视频
     for _video in _video_urls:
         index += 1
@@ -113,7 +111,7 @@ def play_course_videos(_driver:WebDriver, _course_id:int, _video_urls:list[str],
     logger.info("该课程已全部播放完毕")
 
 
-def get_course_videos(_driver, _course_id) -> list[str]:
+def get_course_videos(_driver:WebDriver, _course_id:int) -> list[str]:
     # 访问课程页面
     logger.info("正在进入课程页面...")
     _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
@@ -146,19 +144,42 @@ def get_course_videos(_driver, _course_id) -> list[str]:
     logger.info(f"共计找到{len(video_urls)}个视频")
     return video_urls
 
+def get_user_info() -> tuple[str,str]:
+    def ask_for_user_info() -> tuple[str,str]:
+        __username = input("请键入统一认证登录学号:")
+        __password = input("请键入统一认证登录密码:")
+        with open("./user.cfg", "w") as file:
+            file.write(f"{b64encode(str((__username,__password)).encode())}")
+        logger.info("统一认证登录学号与密码已存储至user.cfg")
+        return (__username, __password)
+
+    try:
+        logger.info("正在获取统一认证登录学号和密码...")
+        with open("./user.cfg", "r") as file:
+            _username, _password= eval(b64decode(eval(file.read())))
+        
+        logger.info(f"当前账户为{_username}")
+        if input("是否需要更新学号或密码,需要请输入'Y',不需要请输入任意值[Y/任意值]") == "Y":
+            _username, _password = ask_for_user_info()
+            
+    except FileNotFoundError:
+        logger.info("未找到用户信息文件")
+        _username, _password = ask_for_user_info()
+    
+    return (_username, _password)
+
 
 if __name__ == "__main__":
-    # 用户信息及课程ID
-    username = ""
-    password = ""
-
     # 目前只支持四史
-    course_id = 16574
+    courseId = 16574
 
     try:
         # 配置日志
         logger.add("./log/run.log", rotation="1 MB", compression="zip")
         logger.info("启动程序")
+
+        # 获取用户名和密码
+        username, password = get_user_info() 
 
         # 实例化浏览器
         driver = get_web_driver()
@@ -167,12 +188,13 @@ if __name__ == "__main__":
         login(driver, username, password)
 
         # 爬取视频链接列表
-        videos = get_course_videos(driver, course_id)
+        videoURLs = get_course_videos(driver, courseId)
 
         # 逐个播放网课视频
-        play_course_videos(driver, course_id, videos, 90)
-
-        logger.info("退出程序")
+        play_course_videos(driver, videoURLs, 100)
 
     except Exception as ex:
         logger.exception("发生了一个意料之外的错误:", ex)
+    
+    finally:
+        logger.info("退出程序")
