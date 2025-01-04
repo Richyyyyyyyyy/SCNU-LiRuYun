@@ -1,7 +1,7 @@
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
-#// from selenium.webdriver.chrome.service import Service
+# //from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementNotInteractableException
@@ -17,7 +17,7 @@ def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
     options = ChromeOptions()
     if _mute:
         options.add_argument("--mute-audio")
-    #// service = Service('./chromedriver.exe')
+    # //service = Service('./chromedriver.exe')
     _driver = Chrome(options)
 
     # 伪无头模式
@@ -151,11 +151,11 @@ def get_course_videos(_driver:WebDriver, _course_id:int) -> list[dict]:
     # 爬取视频链接
     _driver.implicitly_wait(10)
     logger.info("正在爬取视频链接...")
-    index_classes = _driver.find_elements(By.TAG_NAME, "a")
+    links = _driver.find_elements(By.TAG_NAME, "a")
     _videos = []
-    for index_class in index_classes:
-        url = str(index_class.get_attribute("href"))
-        name = index_class.text
+    for link in links:
+        url = str(link.get_attribute("href"))
+        name = link.text
         if ("https://moodle.scnu.edu.cn/mod/h5pactivity/view.php" in url) or ("https://moodle.scnu.edu.cn/mod/fsresource/view.php" in url):
             _videos.append({'name':name, 'url':url})
 
@@ -185,22 +185,43 @@ def get_user_info() -> tuple[str,str]:
         logger.info(f"当前账户为{_username}")
         if input("是否需要更新学号或密码,需要请输入'Y',不需要请输入任意值[Y/任意值]") == "Y":
             _username, _password = ask_for_user_info()
+            logger.info(f"当前账户为{_username}")
             
     except FileNotFoundError:
         logger.info("未找到用户信息文件")
         _username, _password = ask_for_user_info()
+        logger.info(f"当前账户为{_username}")
     
     return (_username, _password)
+
+
+def get_courses(_driver:WebDriver) -> list[dict[str,int]]:
+
+    # 获取超链接
+    parent_element = driver.find_element(By.CLASS_NAME, "dropdown.nav-item.mycourse")
+    links = parent_element.find_elements(By.TAG_NAME, "a")
+
+    _courses = []
+    base_url = "https://moodle.scnu.edu.cn/course/view.php?id="
+    # 过滤
+    for link in links:
+        url = str(link.get_attribute("href"))
+        name = link.get_attribute("title")
+        if base_url in url:
+            course_id = int(url[len(base_url):])
+            _courses.append({'name':name, 'id':course_id})
+
+    return _courses
 
 
 if __name__ == "__main__":
     # 已经通过测试的课程
     # 四史
-    #// courseId = 16574
+    # //courseId = 16574
     # 中华民族共同体概论
-    #// courseId = 16646
+    # //courseId = 16646
     # 大学生劳动教育理论与实践
-    #// courseId = 16491
+    # //courseId = 16491
     # 大学生心理健康教育
     courseId = 16691
 
@@ -217,6 +238,9 @@ if __name__ == "__main__":
 
         # 登录到砺儒云平台
         login(driver, username, password)
+
+        # 爬取课程列表
+        courses = get_courses(driver)
 
         # 爬取视频链接列表
         videos = get_course_videos(driver, courseId)
