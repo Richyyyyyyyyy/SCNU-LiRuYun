@@ -31,6 +31,7 @@ def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
 
 
 def login(_driver:WebDriver, _username:str, _password:str) -> None:
+
     # 跳转到综合平台
     logger.info("正在加载登陆界面...")
     _driver.get("https://moodle.scnu.edu.cn/login/index.php")
@@ -54,6 +55,7 @@ def login(_driver:WebDriver, _username:str, _password:str) -> None:
 
 
 def play_course_videos(_driver:WebDriver, _videos:list[dict], _finish_percentage:int=100) -> None:
+
     # 压缩字符串的方法
     def truncate_string(s:str, max_length:int=10) -> str:
         if len(s) > max_length:
@@ -99,7 +101,6 @@ def play_course_videos(_driver:WebDriver, _videos:list[dict], _finish_percentage
                 continue
 
         # 检查播放进度
-        percentage_value = 0.00
         with tqdm(total=100, desc=f"[{i+1}/{len(_videos)}]{truncate_string(_videos[i]['name'])}视频播放进度", ncols=100, unit="%") as pbar:
             while True:
                 # 获取进度百分比
@@ -131,6 +132,7 @@ def play_course_videos(_driver:WebDriver, _videos:list[dict], _finish_percentage
 
 
 def get_course_videos(_driver:WebDriver, _course_id:int) -> list[dict]:
+
     # 访问课程页面
     logger.info("正在进入课程页面...")
     _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
