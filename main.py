@@ -1,7 +1,7 @@
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
+#// from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import ElementNotInteractableException
@@ -17,7 +17,7 @@ def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
     options = ChromeOptions()
     if _mute:
         options.add_argument("--mute-audio")
-    #service = Service('./chromedriver.exe')
+    #// service = Service('./chromedriver.exe')
     _driver = Chrome(options)
 
     # 伪无头模式
@@ -28,6 +28,7 @@ def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
     _driver.implicitly_wait(10)
 
     return _driver
+
 
 def login(_driver:WebDriver, _username:str, _password:str) -> None:
     # 跳转到综合平台
@@ -52,66 +53,84 @@ def login(_driver:WebDriver, _username:str, _password:str) -> None:
         exit(1)
 
 
-def play_course_videos(_driver:WebDriver, _video_urls:list[str], _finish_percentage:int=100) -> None:
+def play_course_videos(_driver:WebDriver, _videos:list[dict], _finish_percentage:int=100) -> None:
+    # 压缩字符串的方法
+    def truncate_string(s:str, max_length:int=10) -> str:
+        if len(s) > max_length:
+            return s[:max_length] + "..."
+        else:
+            return s
 
-    index = 0
     # 遍历播放视频
-    for _video in _video_urls:
-        index += 1
-        logger.info(f"视频[{index}/{len(_video_urls)}]正在播放")
+    for i in range(len(_videos)):
+        logger.info(f"视频[{i+1}/{len(_videos)}]{_videos[i]['name']}正在播放")
         try:
-            _driver.get(_video)
+            _driver.get(_videos[i]['url'])
         except Exception as e:
             logger.error("当前视频页面加载出现问题:", e)
             continue
+        
+        # 根据链接对播放器进行适配
+        if "h5pactivity" in _videos[i]["url"]:
+            # 切换到第一个 iframe
+            first_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
+            _driver.switch_to.frame(first_iframe)
 
-        # 切换到第一个 iframe
-        first_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
-        _driver.switch_to.frame(first_iframe)
+            # 切换到第二个 iframe
+            second_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
+            _driver.switch_to.frame(second_iframe)
 
-        # 切换到第二个 iframe
-        second_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
-        _driver.switch_to.frame(second_iframe)
+            # 点击播放按钮
+            try:
+                _driver.find_element(By.CLASS_NAME, "h5p-control.h5p-pause.h5p-play").click()
+            except NoSuchElementException and ElementNotInteractableException:
+                logger.error("页面元素处理出错:", _videos[i]['name'])
+                continue
 
-        # 点击播放按钮
-        try:
-            _driver.find_element(By.CLASS_NAME, "h5p-control.h5p-pause.h5p-play").click()
-        except NoSuchElementException and ElementNotInteractableException:
-            logger.error("页面元素处理出错:", _video)
-            continue
+            # 切换到主界面
+            _driver.switch_to.default_content()
 
-        # 切换到主界面
-        _driver.switch_to.default_content()
+        else:
+            # 点击播放按钮
+            try:
+                driver.find_element(By.CLASS_NAME, "prism-big-play-btn").click()
+            except NoSuchElementException and ElementNotInteractableException:
+                logger.error(f"页面元素处理出错:{_videos[i]['name']}")
+                continue
 
         # 检查播放进度
         percentage_value = 0.00
-        with tqdm(total=100, desc=f"[{index}/{len(_video_urls)}]视频播放进度", ncols=100, unit="%") as pbar:
+        with tqdm(total=100, desc=f"[{i+1}/{len(_videos)}]{truncate_string(_videos[i]['name'])}视频播放进度", ncols=100, unit="%") as pbar:
             while True:
                 # 获取进度百分比
-                cell_c3 = float(_driver.find_element(By.CLASS_NAME, "cell.c3").text.strip('%'))
-                if cell_c3 != percentage_value:
-                    # 更新进度条
-                    percentage_value = cell_c3
-                    pbar.n = percentage_value
-                    pbar.last_print_n = percentage_value
-                    pbar.update(0)
+                if "h5pactivity" in _videos[i]["url"]:
+                    percentage = float(_driver.find_element(By.CLASS_NAME, "cell.c3").text.strip('%'))
+                else:
+                    percentage = float(_driver.find_element(By.CLASS_NAME, "number.num-bfjd").text.strip('%'))
+
+                # if percentage != percentage_value:
+                # 更新进度条
+                percentage_value = percentage
+                pbar.n = percentage_value
+                pbar.last_print_n = percentage_value
+                pbar.update(0)
 
                 # 如果进度超过既定完成进度，则退出
-                if percentage_value > _finish_percentage:
+                if percentage_value >= _finish_percentage:
                     sleep(1)
                     pbar.n = 100.00
                     pbar.last_print_n = 100.00
                     pbar.update(0)
-                    logger.info(f"视频[{index}/{len(_video_urls)}]播放完成")
+                    print()
+                    logger.info(f"视频[{i+1}/{len(_videos)}]{_videos[i]['name']}播放完成")
                     break
                 else:
                     sleep(1)
-
     # 结束播放
     logger.info("该课程已全部播放完毕")
 
 
-def get_course_videos(_driver:WebDriver, _course_id:int) -> list[str]:
+def get_course_videos(_driver:WebDriver, _course_id:int) -> list[dict]:
     # 访问课程页面
     logger.info("正在进入课程页面...")
     _driver.get(f"https://moodle.scnu.edu.cn/course/view.php?id={_course_id}")
@@ -130,19 +149,22 @@ def get_course_videos(_driver:WebDriver, _course_id:int) -> list[str]:
     # 爬取视频链接
     _driver.implicitly_wait(10)
     logger.info("正在爬取视频链接...")
-    links = _driver.find_elements(By.TAG_NAME, "a")
-    video_urls = []
-    for link in links:
-        video_url = link.get_attribute("href")
-        if video_url and "https://moodle.scnu.edu.cn/mod/h5pactivity/view.php" in video_url:
-            video_urls.append(video_url)
+    index_classes = _driver.find_elements(By.TAG_NAME, "a")
+    _videos = []
+    for index_class in index_classes:
+        url = str(index_class.get_attribute("href"))
+        name = index_class.text
+        if ("https://moodle.scnu.edu.cn/mod/h5pactivity/view.php" in url) or ("https://moodle.scnu.edu.cn/mod/fsresource/view.php" in url):
+            _videos.append({'name':name, 'url':url})
 
-    # 链接去重显示
-    video_urls = list(set(video_urls))
-    for video_url in video_urls:
-        print(video_url)
-    logger.info(f"共计找到{len(video_urls)}个视频")
-    return video_urls
+    # 链接去重
+    for i in range(len(_videos)-1, -1, -1):
+        if ("资源库文件" in _videos[i]['name']) or (_videos[i]['name'] == ""):
+            _videos.pop(i)
+
+    logger.info(f"共计找到{len(_videos)}个视频")
+    return _videos
+
 
 def get_user_info() -> tuple[str,str]:
     def ask_for_user_info() -> tuple[str,str]:
@@ -170,8 +192,15 @@ def get_user_info() -> tuple[str,str]:
 
 
 if __name__ == "__main__":
-    # 目前只支持四史
-    courseId = 16574
+    # 已经通过测试的课程
+    # 四史
+    #// courseId = 16574
+    # 中华民族共同体概论
+    #// courseId = 16646
+    # 大学生劳动教育理论与实践
+    #// courseId = 16491
+    # 大学生心理健康教育
+    courseId = 16691
 
     try:
         # 配置日志
@@ -188,10 +217,10 @@ if __name__ == "__main__":
         login(driver, username, password)
 
         # 爬取视频链接列表
-        videoURLs = get_course_videos(driver, courseId)
+        videos = get_course_videos(driver, courseId)
 
         # 逐个播放网课视频
-        play_course_videos(driver, videoURLs, 100)
+        play_course_videos(driver, videos, 100)
 
     except Exception as ex:
         logger.exception("发生了一个意料之外的错误:", ex)
