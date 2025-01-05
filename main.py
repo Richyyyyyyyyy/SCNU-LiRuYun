@@ -261,10 +261,12 @@ if __name__ == "__main__":
 
         # 逐个播放网课视频
         for course in courses:
+            logger.info(f"正在播放课程{course.name}")
             play_course_videos(driver, course.videos, 100)
 
     except Exception as ex:
         logger.exception("发生了一个意料之外的错误:", ex)
     
     finally:
+        driver.quit() # type: ignore
         logger.info("退出程序")
