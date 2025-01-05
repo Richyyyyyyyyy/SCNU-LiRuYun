@@ -3,8 +3,7 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 # //from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import NoSuchElementException
-from selenium.common.exceptions import ElementNotInteractableException
+from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, ElementClickInterceptedException
 from selenium.webdriver.support.expected_conditions import presence_of_element_located
 from loguru import logger
 from tqdm import tqdm
@@ -162,7 +161,7 @@ def get_course_videos(_driver:WebDriver, _course_url:str) -> list[Video]:
         btn_open.click()
         logger.info("正在展开课程列表...")
         sleep(2)
-    except ElementNotInteractableException:
+    except ElementNotInteractableException or ElementClickInterceptedException:
         pass
 
     # 爬取视频链接
