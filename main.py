@@ -2,7 +2,7 @@ from selenium.webdriver import Edge, EdgeOptions
 from selenium.webdriver.edge.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, ElementClickInterceptedException
+from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, ElementClickInterceptedException, NoSuchWindowException
 from selenium.webdriver.support.expected_conditions import presence_of_element_located
 from loguru import logger
 from tqdm import tqdm
@@ -10,6 +10,8 @@ from time import sleep
 from sys import exit
 from base64 import b64encode, b64decode
 from dataclasses import dataclass
+from os import makedirs
+from os.path import dirname
 
 
 @dataclass
@@ -143,7 +145,7 @@ def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_perc
                 sleep(1)
 
 
-def get_course_videos(_driver:WebDriver, _course_url:str) -> list[Video]:
+def scrape_course_videos(_driver:WebDriver, _course_url:str) -> list[Video]:
 
     # 访问课程页面
     logger.info("正在进入课程页面...")
@@ -211,7 +213,7 @@ def get_user_info() -> tuple[str,str]:
     return (_username, _password)
 
 
-def get_courses(_driver:WebDriver) -> list[Course]:
+def scrape_courses(_driver:WebDriver) -> list[Course]:
 
     # 获取超链接
     parent_element = _driver.find_element(By.CLASS_NAME, "dropdown.nav-item.mycourse")
@@ -229,7 +231,7 @@ def get_courses(_driver:WebDriver) -> list[Course]:
     # 爬取视频
     for i in range(len(_courses)-1, -1, -1):
         logger.info(f"正在爬取课程{_courses[i].name}的视频")
-        _courses[i].videos = get_course_videos(_driver, _courses[i].url)
+        _courses[i].videos = scrape_course_videos(_driver, _courses[i].url)
         if _courses[i].videos == []:
             _courses.pop(i)
     # 为索引赋值
@@ -251,6 +253,30 @@ def play_all_videos(_driver:WebDriver, _courses:list[Course]) -> None:
                     index_info = f"[{_course.index}/{len(_courses)}][{_video.index}/{len(_course.videos)}]"
                     play_video(_driver, _video,index_info)
 
+
+def save_courses(_username, _courses) -> None:
+    makedirs(dirname(f"./cache/"), exist_ok=True)
+    with open(f"./cache/{_username}", "w") as file:
+        file.write(f"{b64encode(str(_courses).encode())}")
+    logger.info(f"缓存数据已存储至./{_username}.data")
+
+
+def get_courses(_driver, _username) -> list[Course]:
+    try:
+        with open(f"./cache/{_username}", "r") as file:
+            logger.info("正在获取缓存数据")
+            _courses = eval(b64decode(eval(file.read())))
+  
+        logger.info(f"发现了{len(_courses)}个需要观看的课程中的{sum(len(_course.videos) for _course in _courses)}个视频")
+        if input("是否需要刷新数据，需要请输入'Y',不需要请输入任意值[Y/任意值]") == "Y":
+            _courses = scrape_courses(_driver)
+        
+    except FileNotFoundError:
+        logger.info("未找到缓存数据")
+        _courses = scrape_courses(_driver)
+
+    save_courses(_username, _courses)
+    return _courses
 
 if __name__ == "__main__":
     """
@@ -274,15 +300,21 @@ if __name__ == "__main__":
         # 登录到砺儒云平台
         login(driver, username, password)
 
-        # 爬取课程列表
-        courses = get_courses(driver)
+        # 获取视频数据
+        courses = get_courses(driver, username)
 
         # 逐个播放网课视频
         play_all_videos(driver, courses)
-        
+    
+    except NoSuchWindowException:
+        logger.critical("浏览器窗口被关闭")
+    
     except Exception as ex:
         logger.exception("发生了一个意料之外的错误:", ex)
     
     finally:
-        driver.quit() # type: ignore
+        try: driver.quit()                                      # type: ignore
+        except NameError: pass
+        try: save_courses(username, courses) # type: ignore
+        except NameError: pass
         logger.info("退出程序")
