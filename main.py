@@ -1,7 +1,6 @@
-from selenium.webdriver import Chrome, ChromeOptions
-from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.webdriver import Edge, EdgeOptions
+from selenium.webdriver.edge.webdriver import WebDriver
 from selenium.webdriver.common.by import By
-# //from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, ElementClickInterceptedException
 from selenium.webdriver.support.expected_conditions import presence_of_element_located
@@ -29,11 +28,10 @@ class Course:
 
 
 def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
-    options = ChromeOptions()
+    options = EdgeOptions()
     if _mute:
         options.add_argument("--mute-audio")
-    # //service = Service('./chromedriver.exe')
-    _driver = Chrome(options)
+    _driver = Edge(options)
 
     # 伪无头模式
     if not _show_window:
@@ -248,7 +246,7 @@ if __name__ == "__main__":
         logger.info("启动程序")
 
         # 获取用户名和密码
-        username, password = get_user_info() 
+        username, password = get_user_info()
 
         # 实例化浏览器
         driver = get_web_driver()
