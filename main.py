@@ -17,6 +17,7 @@ class Video:
     name:str
     url:str
     is_finished:bool = False
+    index:int = 0
 
 
 @dataclass
@@ -24,8 +25,8 @@ class Course:
     name:str
     url:str
     videos:list[Video]
-    is_finished:bool = False 
-
+    is_finished:bool = False
+    index:int = 0
 
 def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
     options = EdgeOptions()
@@ -67,7 +68,7 @@ def login(_driver:WebDriver, _username:str, _password:str) -> None:
         exit(1)
 
 
-def play_video(_driver:WebDriver, _video:Video, index_info:str="", _finish_percentage:int=100) -> None:
+def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_percentage:int=100) -> None:
 
     # 压缩字符串的方法
     def truncate_string(s:str, max_length:int=10) -> str:
@@ -77,7 +78,7 @@ def play_video(_driver:WebDriver, _video:Video, index_info:str="", _finish_perce
             return s
 
     # 播放视频
-    logger.info(f"视频{index_info}{_video.name}正在播放")
+    logger.info(f"视频{_index_info}{_video.name}正在播放")
     try:
         _driver.get(_video.url)
     except Exception as e:
@@ -113,7 +114,7 @@ def play_video(_driver:WebDriver, _video:Video, index_info:str="", _finish_perce
             return
 
         # 检查播放进度
-    with tqdm(total=100, desc=f"{index_info}{truncate_string(_video.name)}视频播放进度", ncols=100, unit="%") as pbar:
+    with tqdm(total=100, desc=f"{_index_info}{truncate_string(_video.name)}视频播放进度", ncols=100, unit="%") as pbar:
         while True:
             # 获取进度百分比
             if "h5pactivity" in _video.url:
@@ -136,7 +137,7 @@ def play_video(_driver:WebDriver, _video:Video, index_info:str="", _finish_perce
                 pbar.update(0)
                 _video.is_finished = True
                 print()
-                logger.info(f"视频{index_info}{_video.name}播放完成")
+                logger.info(f"视频{_index_info}{_video.name}播放完成")
                 break
             else:
                 sleep(1)
@@ -174,6 +175,10 @@ def get_course_videos(_driver:WebDriver, _course_url:str) -> list[Video]:
     for i in range(len(_videos)-1, -1, -1):
         if ("资源库文件" in _videos[i].name) or (_videos[i].name == ""):
             _videos.pop(i)
+
+    # 为索引赋值
+    for i in range(len(_videos)):
+         _videos[i].index = i+1
 
     logger.info(f"共计找到{len(_videos)}个视频")
     return _videos
@@ -227,8 +232,24 @@ def get_courses(_driver:WebDriver) -> list[Course]:
         _courses[i].videos = get_course_videos(_driver, _courses[i].url)
         if _courses[i].videos == []:
             _courses.pop(i)
+    # 为索引赋值
+    for i in range(len(_courses)):
+         _courses[i].index = i+1
+
     logger.info(f"发现了{len(_courses)}个需要观看的课程中的{sum(len(_course.videos) for _course in _courses)}个视频")
     return _courses
+
+
+def play_all_videos(_driver:WebDriver, _courses:list[Course]) -> None:
+
+    # 播放未完成的课程
+    for _course in _courses:
+        if not _course.is_finished:
+            logger.info(f"[{_course.index}/{len(_courses)}]课程->{_course.name}正在播放")
+            for _video in _course.videos:
+                if not _video.is_finished:
+                    index_info = f"[{_course.index}/{len(_courses)}][{_video.index}/{len(_course.videos)}]"
+                    play_video(_driver, _video,index_info)
 
 
 if __name__ == "__main__":
@@ -257,11 +278,8 @@ if __name__ == "__main__":
         courses = get_courses(driver)
 
         # 逐个播放网课视频
-        for course in courses:
-            for video in course.videos:
-                logger.info(f"正在播放课程{course.name}")
-                play_video(driver, video)
-
+        play_all_videos(driver, courses)
+        
     except Exception as ex:
         logger.exception("发生了一个意料之外的错误:", ex)
     
