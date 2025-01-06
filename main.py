@@ -78,7 +78,7 @@ def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_perc
             return s
 
     # 播放视频
-    logger.info(f"视频{_index_info}{_video.name}正在播放")
+    logger.info(f"{_index_info}视频->{_video.name}正在播放")
     try:
         _driver.get(_video.url)
     except Exception as e:
@@ -114,7 +114,7 @@ def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_perc
             return
 
         # 检查播放进度
-    with tqdm(total=100, desc=f"{_index_info}{truncate_string(_video.name)}视频播放进度", ncols=100, unit="%") as pbar:
+    with tqdm(total=100, desc=f"{_index_info}{truncate_string(_video.name)}播放进度", ncols=100, unit="%") as pbar:
         while True:
             # 获取进度百分比
             if "h5pactivity" in _video.url:
@@ -137,7 +137,7 @@ def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_perc
                 pbar.update(0)
                 _video.is_finished = True
                 print()
-                logger.info(f"视频{_index_info}{_video.name}播放完成")
+                logger.info(f"{_index_info}视频->{_video.name}播放完成")
                 break
             else:
                 sleep(1)
