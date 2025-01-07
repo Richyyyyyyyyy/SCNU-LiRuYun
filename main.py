@@ -139,10 +139,10 @@ def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_perc
                 pbar.update(0)
                 _video.is_finished = True
                 print()
-                logger.info(f"{_index_info}视频->{_video.name}播放完成")
                 break
             else:
                 sleep(1)
+    if _video.is_finished:logger.info(f"{_index_info}视频->{_video.name}播放完成")
 
 
 def scrape_course_videos(_driver:WebDriver, _course_url:str) -> list[Video]:
