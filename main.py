@@ -116,7 +116,7 @@ def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_perc
             return
 
         # 检查播放进度
-    with tqdm(total=100, desc=f"{_index_info}{truncate_string(_video.name)}播放进度", ncols=100, unit="%") as pbar:
+    with tqdm(total=100, desc=f"{_index_info}{truncate_string(_video.name)}播放进度", ncols=100, unit="%", position=0) as pbar:
         while True:
             # 获取进度百分比
             if "h5pactivity" in _video.url:
@@ -138,11 +138,10 @@ def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_perc
                 pbar.last_print_n = 100.00
                 pbar.update(0)
                 _video.is_finished = True
-                print()
+                logger.info(f"{_index_info}视频->{_video.name}播放完成")
                 break
             else:
                 sleep(1)
-    if _video.is_finished: logger.info(f"{_index_info}视频->{_video.name}播放完成")
 
 
 def scrape_course_videos(_driver:WebDriver, _course_url:str) -> list[Video]:
@@ -252,6 +251,11 @@ def play_all_videos(_driver:WebDriver, _courses:list[Course]) -> None:
                 if not _video.is_finished:
                     index_info = f"[{_course.index}/{len(_courses)}][{_video.index}/{len(_course.videos)}]"
                     play_video(_driver, _video,index_info)
+            # 判断课程视频是否全部完成
+            if sum(_video.is_finished for _video in _course.videos) == len(_course.videos):
+                _course.is_finished = True
+            else:
+                play_all_videos(_driver, _courses)
 
 
 def save_courses(_username, _courses) -> None:
