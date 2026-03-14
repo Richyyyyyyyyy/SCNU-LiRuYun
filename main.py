@@ -1,324 +1,497 @@
-from selenium.webdriver import Edge, EdgeOptions
-from selenium.webdriver.edge.webdriver import WebDriver
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Selenium核心依赖
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, ElementClickInterceptedException, NoSuchWindowException
+from selenium.common.exceptions import (
+    NoSuchElementException, ElementNotInteractableException,
+    ElementClickInterceptedException, NoSuchWindowException
+)
 from selenium.webdriver.support.expected_conditions import presence_of_element_located
+
+# 驱动管理依赖
+from webdriver_manager.firefox import GeckoDriverManager
+
+# 适配不同版本webdriver-manager的Edge驱动命名差异
+try:
+    from webdriver_manager.microsoft import EdgeChromiumDriverManager as EdgeDriverManager
+except ImportError:
+    from webdriver_manager.microsoft import EdgeDriverManager
+
+# 浏览器服务配置
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.webdriver import Firefox, FirefoxOptions, Edge, EdgeOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.firefox.webdriver import WebDriver
+
+# 辅助工具模块
 from loguru import logger
 from tqdm import tqdm
 from time import sleep
-from sys import exit
+from sys import exit, platform
 from base64 import b64encode, b64decode
 from dataclasses import dataclass
-from os import makedirs
-from os.path import dirname
+from os import makedirs, path
+from typing import List, Tuple
 
+# 全局配置
+BROWSER = "firefox"  # 核心配置：指定使用的浏览器(edge/firefox)
+PROJECT_ROOT = path.dirname(path.abspath(__file__))  # 项目根目录，统一管理文件路径
 
+# 数据结构定义
 @dataclass
 class Video:
-    name:str
-    url:str
-    is_finished:bool = False
-    index:int = 0
+    """视频数据模型：封装视频名称、URL、播放状态等核心属性"""
+    name: str  # 视频名称
+    url: str  # 视频播放URL（唯一标识）
+    is_finished: bool = False  # 播放完成标记
+    index: int = 0  # 视频在课程内的序号
+
+    def __repr__(self):
+        """自定义字符串表示，便于日志输出"""
+        return f"Video(name={self.name[:10]}..., url={self.url[:20]}..., finished={self.is_finished})"
 
 
 @dataclass
 class Course:
-    name:str
-    url:str
-    videos:list[Video]
-    is_finished:bool = False
-    index:int = 0
+    """课程数据模型：封装课程名称、URL、关联视频列表及完成状态"""
+    name: str  # 课程名称
+    url: str  # 课程主页URL（唯一标识）
+    videos: List[Video]  # 课程下的视频列表
+    is_finished: bool = False  # 课程完成标记
+    index: int = 0  # 课程在总列表中的序号
 
-def get_web_driver(_mute:bool=True, _show_window:bool=True) -> WebDriver:
-    options = EdgeOptions()
-    if _mute:
-        options.add_argument("--mute-audio")
-    _driver = Edge(options)
+    def __repr__(self):
+        """自定义字符串表示，便于日志输出"""
+        finished_count = sum(1 for v in self.videos if v.is_finished)
+        return f"Course(name={self.name[:10]}..., videos={len(self.videos)} (finished={finished_count}), index={self.index})"
 
-    # 伪无头模式
-    if not _show_window:
-        _driver.set_window_position(-2000, -2000)
 
-    # 超时等待时间
+# 核心函数定义
+def get_web_driver(_mute: bool = True, _show_window: bool = True) -> WebDriver:
+    """
+    创建并配置WebDriver实例，自动处理驱动下载和跨平台兼容
+    Args:
+        _mute: 浏览器音频静音（默认True）
+        _show_window: 是否显示浏览器窗口（默认True）
+    Returns:
+        配置完成的WebDriver实例
+    Raises:
+        SystemExit: 浏览器类型不支持时退出
+    """
+    _driver = None
+
+    if BROWSER == "edge":
+        options = EdgeOptions()
+        if _mute:
+            options.add_argument("--mute-audio")
+        if platform.startswith("linux"):
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--disable-software-rasterizer")
+        if not _show_window:
+            options.add_argument("--window-position=-2000,-2000")
+        # 要改
+        service = EdgeService(EdgeDriverManager().install())
+        _driver = Edge(options=options, service=service)
+
+    elif BROWSER == "firefox":
+        options = FirefoxOptions()
+        if _mute:
+            options.set_preference("media.volume_scale", "0.0")
+        options.set_preference("intl.accept_languages", "zh-CN,zh")
+        if platform.startswith("linux"):
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-gpu")
+        if not _show_window:
+            options.add_argument("--window-position=-2000,-2000")
+
+        # 要改
+        service = FirefoxService(GeckoDriverManager().install())
+        _driver = Firefox(options=options, service=service)
+
+    else:
+        logger.critical(f"不支持的浏览器类型：{BROWSER} | 仅支持 edge / firefox")
+        exit(1)
+
     _driver.implicitly_wait(10)
-
+    _driver.set_window_size(1280, 720)
     return _driver
 
 
-def login(_driver:WebDriver, _username:str, _password:str) -> None:
-
-    # 跳转到综合平台
-    logger.info("正在加载登陆界面...")
+def login(_driver: WebDriver, _username: str, _password: str) -> None:
+    """
+    自动完成Moodle平台SSO统一认证登录
+    Args:
+        _driver: WebDriver实例
+        _username: 统一认证学号
+        _password: 统一认证密码
+    Raises:
+        SystemExit: 登录失败时退出
+    """
+    logger.info("开始加载Moodle登录页面...")
     _driver.get("https://moodle.scnu.edu.cn/login/index.php")
-    _driver.find_element(By.ID, "ssobtn").click()
 
-    # 登录到砺儒云
-    logger.info("正在登陆...")
+    try:
+        sso_btn = _driver.find_element(By.ID, "ssobtn")
+        sso_btn.click()
+    except NoSuchElementException:
+        logger.critical("未找到SSO登录按钮，页面结构可能变更")
+        sleep(10)
+        exit(1)
+
+    logger.info("跳转到统一认证页面，输入账号密码...")
     _driver.find_element(By.ID, "account").send_keys(_username)
     _driver.find_element(By.ID, "password").send_keys(_password)
     _driver.find_element(By.ID, "btn-password-login").click()
-    _driver.find_element(By.LINK_TEXT, "确定登录").click()
 
-    # 确定是否成功登录
     try:
-        h1_element = _driver.find_element(By.CSS_SELECTOR, 'h1.h2.mb-3.mt-3')
-        logger.info("登陆成功!", h1_element.text)
+        confirm_btn = _driver.find_element(By.LINK_TEXT, "确定登录")
+        confirm_btn.click()
     except NoSuchElementException:
-        logger.critical("登陆失败!请检查页面和账号密码")
+        logger.warning("未找到'确定登录'按钮，可能已自动授权")
+
+    try:
+        welcome_elem = _driver.find_element(By.CSS_SELECTOR, 'h1.h2.mb-3.mt-3')
+        logger.success(f"登录成功！欢迎信息：{welcome_elem.text}")
+    except NoSuchElementException:
+        logger.critical("登录失败！请检查账号密码或页面结构")
         sleep(10)
         exit(1)
 
 
-def play_video(_driver:WebDriver, _video:Video, _index_info:str="", _finish_percentage:int=100) -> None:
+def play_video(
+        _driver: WebDriver,
+        _video: Video,
+        _index_info: str = "",
+        _finish_percentage: int = 100
+) -> None:
+    """
+    自动播放单个视频并监控进度，达到阈值后标记为完成
+    Args:
+        _driver: WebDriver实例
+        _video: 待播放的Video对象
+        _index_info: 进度日志前缀（如[课程1/5][视频2/10]）
+        _finish_percentage: 播放完成阈值（默认100%）
+    """
 
-    # 压缩字符串的方法
-    def truncate_string(s:str, max_length:int=10) -> str:
-        if len(s) > max_length:
-            return s[:max_length] + "..."
-        else:
-            return s
+    def truncate_string(s: str, max_length: int = 10) -> str:
+        return s[:max_length] + "..." if len(s) > max_length else s
 
-    # 播放视频
-    logger.info(f"{_index_info}视频->{_video.name}正在播放")
+    logger.info(f"{_index_info} 开始播放视频：{_video.name}")
     try:
         _driver.get(_video.url)
     except Exception as e:
-        logger.error("当前视频页面加载出现问题:", e)
+        logger.error(f"{_index_info} 视频页面加载失败：{str(e)} | 视频：{_video.name}")
         return
-        
-    # 根据链接对播放器进行适配
+
+    # 触发不同类型视频播放
     if "h5pactivity" in _video.url:
-        # 切换到第一个 iframe
-        first_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
-        _driver.switch_to.frame(first_iframe)
-
-        # 切换到第二个 iframe
-        second_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
-        _driver.switch_to.frame(second_iframe)
-
-        # 点击播放按钮
         try:
-            _driver.find_element(By.CLASS_NAME, "h5p-control.h5p-pause.h5p-play").click()
-        except NoSuchElementException and ElementNotInteractableException:
-            logger.error("页面元素处理出错:", _video.name)
+            first_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
+            _driver.switch_to.frame(first_iframe)
+            second_iframe = WebDriverWait(_driver, 10).until(presence_of_element_located((By.TAG_NAME, "iframe")))
+            _driver.switch_to.frame(second_iframe)
+
+            play_btn = _driver.find_element(By.CLASS_NAME, "h5p-control.h5p-pause.h5p-play")
+            play_btn.click()
+            _driver.switch_to.default_content()
+        except Exception as e:
+            logger.error(f"{_index_info} H5P视频播放操作失败：{str(e)} | 视频：{_video.name}")
+            return
+    elif "fsresource" in _video.url:
+        try:
+            play_btn = _driver.find_element(By.CLASS_NAME, "vjs-button-icon")
+            play_btn.click()
+        except Exception as e:
+            logger.error(f"{_index_info} Prism视频播放操作失败：{str(e)} | 视频：{_video.name}")
             return
 
-        # 切换到主界面
-        _driver.switch_to.default_content()
-
-    else:
-        # 点击播放按钮
-        try:
-            driver.find_element(By.CLASS_NAME, "prism-big-play-btn").click()
-        except NoSuchElementException and ElementNotInteractableException:
-            logger.error(f"页面元素处理出错:{_video.name}")
-            return
-
-        # 检查播放进度
-    with tqdm(total=100, desc=f"{_index_info}{truncate_string(_video.name)}播放进度", ncols=100, unit="%", position=0) as pbar:
+    # 监控播放进度
+    with tqdm(
+            total=100,
+            desc=f"{_index_info}{truncate_string(_video.name)} 播放进度",
+            ncols=100,
+            unit="%",
+            position=0,
+            colour="green"
+    ) as pbar:
         while True:
-            # 获取进度百分比
-            if "h5pactivity" in _video.url:
-                percentage = float(_driver.find_element(By.CLASS_NAME, "cell.c3").text.strip('%'))
-            else:
-                percentage = float(_driver.find_element(By.CLASS_NAME, "number.num-bfjd").text.strip('%'))
+            try:
+                if "h5pactivity" in _video.url:
+                    progress_elem = _driver.find_element(By.CLASS_NAME, "cell.c3")
+                    percentage = float(progress_elem.text.strip('%'))
+                else:
+                    progress_elem = _driver.find_element(By.CLASS_NAME, "number.num-bfjd")
+                    percentage = float(progress_elem.text.strip('%'))
 
-            # if percentage != percentage_value:
-            # 更新进度条
-            percentage_value = percentage
-            pbar.n = percentage_value
-            pbar.last_print_n = percentage_value
-            pbar.update(0)
-
-            # 如果进度超过既定完成进度，则退出
-            if percentage_value >= _finish_percentage:
-                sleep(1)
-                pbar.n = 100.00
-                pbar.last_print_n = 100.00
+                pbar.n = percentage
+                pbar.last_print_n = percentage
                 pbar.update(0)
-                _video.is_finished = True
-                logger.info(f"{_index_info}视频->{_video.name}播放完成")
-                break
-            else:
+
+                if percentage >= _finish_percentage:
+                    sleep(1)
+                    pbar.n = 100.0
+                    _video.is_finished = True
+                    logger.success(f"{_index_info} 视频播放完成：{_video.name}")
+                    break
+
                 sleep(1)
+            except Exception as e:
+                logger.warning(f"{_index_info} 进度监控中断：{str(e)} | 视频：{_video.name}")
+                break
 
 
-def scrape_course_videos(_driver:WebDriver, _course_url:str) -> list[Video]:
-
-    # 访问课程页面
-    logger.info("正在进入课程页面...")
+def scrape_course_videos(_driver: WebDriver, _course_url: str) -> List[Video]:
+    """
+    爬取单个课程下的所有有效视频（H5P/fsresource类型）并去重
+    Args:
+        _driver: WebDriver实例
+        _course_url: 课程主页URL
+    Returns:
+        去重后的视频列表
+    """
+    logger.info(f"爬取课程视频：{_course_url}")
     _driver.get(_course_url)
 
-    # 展开课程列表
+    # 尝试展开侧边栏
     try:
-        logger.info("正在检测页面状态...")
-        _driver.implicitly_wait(2)
-        btn_open = _driver.find_element(By.CLASS_NAME, "drawer-toggler.drawer-left-toggle.open-nav.d-print-none")
-        btn_open.click()
-        logger.info("正在展开课程列表...")
         sleep(2)
-    except ElementNotInteractableException or ElementClickInterceptedException:
+        expand_btn = _driver.find_element(By.CLASS_NAME, "drawer-toggler.drawer-left-toggle.open-nav.d-print-none")
+        expand_btn.click()
+        logger.info("展开课程侧边栏，提取视频链接...")
+        sleep(2)
+    except Exception as e:
+        # logger.warning(f"侧边栏展开失败（可能已展开）：{str(e)}")
+        # 好像开了也会弹出，所以就不输出了
         pass
 
-    # 爬取视频链接
-    _driver.implicitly_wait(10)
-    logger.info("正在爬取视频链接...")
-    links = _driver.find_elements(By.TAG_NAME, "a")
-    _videos:list[Video] = []
-    for link in links:
-        url = str(link.get_attribute("href"))
-        name = link.text
-        if ("https://moodle.scnu.edu.cn/mod/h5pactivity/view.php" in url) or ("https://moodle.scnu.edu.cn/mod/fsresource/view.php" in url):
-            _videos.append(Video(name, url))
+    all_links = _driver.find_elements(By.TAG_NAME, "a")
+    raw_videos = []
+    for link in all_links:
+        try:
+            link_url = str(link.get_attribute("href")).strip()
+            link_name = str(link.text).strip()
+            if link_url and link_name and "资源库文件" not in link_name:
+                if "h5pactivity/view.php" in link_url or "fsresource/view.php" in link_url:
+                    raw_videos.append(Video(name=link_name, url=link_url))
+        except Exception as e:
+            logger.debug(f"链接提取失败：{str(e)} | 跳过该链接")
+            continue
 
-    # 链接去重
-    for i in range(len(_videos)-1, -1, -1):
-        if ("资源库文件" in _videos[i].name) or (_videos[i].name == ""):
-            _videos.pop(i)
+    # 去重
+    unique_videos = []
+    seen_urls = set()
+    for video in raw_videos:
+        if video.url not in seen_urls:
+            seen_urls.add(video.url)
+            unique_videos.append(video)
 
-    # 为索引赋值
-    for i in range(len(_videos)):
-         _videos[i].index = i+1
+    # 分配序号
+    for idx, video in enumerate(unique_videos, start=1):
+        video.index = idx
 
-    logger.info(f"共计找到{len(_videos)}个视频")
-    return _videos
+    logger.info(f"课程视频爬取完成：{len(unique_videos)} 个有效视频")
+    return unique_videos
 
 
-def get_user_info() -> tuple[str,str]:
-    def ask_for_user_info() -> tuple[str,str]:
-        __username = input("请键入统一认证登录学号:")
-        __password = input("请键入统一认证登录密码:")
-        with open("./user.cfg", "w") as file:
-            file.write(f"{b64encode(str((__username,__password)).encode())}")
-        logger.info("统一认证登录学号与密码已存储至user.cfg")
-        return (__username, __password)
+def get_user_info() -> Tuple[str, str]:
+    """
+    获取用户账号密码（优先读取本地Base64加密缓存，无则手动输入并保存）
+    Returns:
+        (学号, 密码)
+    """
+    user_cfg_path = path.join(PROJECT_ROOT, "user.cfg")
+
+    def input_and_save():
+        BROWSER = input("\n请输入你选择的浏览器[ edge | firefox ]: ")
+        username = input("请输入统一认证学号：").strip()
+        password = input("请输入统一认证密码：").strip()
+        if not username or not password or not BROWSER:
+            logger.error("账号/密码/浏览器不能为空！")
+            return input_and_save()
+
+        makedirs(path.dirname(user_cfg_path), exist_ok=True)
+        encoded = b64encode(str((username, password, BROWSER)).encode()).decode()
+        with open(user_cfg_path, "w", encoding="utf-8") as f:
+            f.write(encoded)
+        logger.success("账号密码已保存至本地（Base64编码）")
+        return username, password
 
     try:
-        logger.info("正在获取统一认证登录学号和密码...")
-        with open("./user.cfg", "r") as file:
-            _username, _password= eval(b64decode(eval(file.read())))
-        
-        logger.info(f"当前账户为{_username}")
-        if input("是否需要更新学号或密码,需要请输入'Y',不需要请输入任意值[Y/任意值]") == "Y":
-            _username, _password = ask_for_user_info()
-            logger.info(f"当前账户为{_username}")
-            
-    except FileNotFoundError:
-        logger.info("未找到用户信息文件")
-        _username, _password = ask_for_user_info()
-        logger.info(f"当前账户为{_username}")
-    
-    return (_username, _password)
+        with open(user_cfg_path, "r", encoding="utf-8") as f:
+            encoded = f.read().strip()
+        username, password, BROWSER = eval(b64decode(encoded).decode())
+        logger.info(f"读取本地缓存账号：{username}")
+
+        update = input("是否更新账号密码？[Y/任意键否]：").strip().upper()
+        if update == "Y":
+            return input_and_save()
+        return username, password
+    except (FileNotFoundError, SyntaxError, NameError):
+        logger.info("未找到本地账号缓存，手动输入...")
+        return input_and_save()
 
 
-def scrape_courses(_driver:WebDriver) -> list[Course]:
-
-    # 获取超链接
-    parent_element = _driver.find_element(By.CLASS_NAME, "dropdown.nav-item.mycourse")
-    links = parent_element.find_elements(By.TAG_NAME, "a")
-
-    _courses:list[Course] = []
-    for link in links:
-        url = str(link.get_attribute("href"))
-        name = str(link.get_attribute("title"))
-        # 过滤
-        if "https://moodle.scnu.edu.cn/course/view.php" in url:
-            _courses.append(Course(name, url, []))
-    logger.info(f"共计找到{len(_courses)}个课程")
-
-    # 爬取视频
-    for i in range(len(_courses)-1, -1, -1):
-        logger.info(f"正在爬取课程{_courses[i].name}的视频")
-        _courses[i].videos = scrape_course_videos(_driver, _courses[i].url)
-        if _courses[i].videos == []:
-            _courses.pop(i)
-    # 为索引赋值
-    for i in range(len(_courses)):
-         _courses[i].index = i+1
-
-    logger.info(f"发现了{len(_courses)}个需要观看的课程中的{sum(len(_course.videos) for _course in _courses)}个视频")
-    return _courses
-
-
-def play_all_videos(_driver:WebDriver, _courses:list[Course]) -> None:
-
-    # 播放未完成的课程
-    for _course in _courses:
-        if not _course.is_finished:
-            logger.info(f"[{_course.index}/{len(_courses)}]课程->{_course.name}正在播放")
-            for _video in _course.videos:
-                if not _video.is_finished:
-                    index_info = f"[{_course.index}/{len(_courses)}][{_video.index}/{len(_course.videos)}]"
-                    play_video(_driver, _video,index_info)
-            # 判断课程视频是否全部完成
-            if sum(_video.is_finished for _video in _course.videos) == len(_course.videos):
-                _course.is_finished = True
-            else:
-                play_all_videos(_driver, _courses)
-
-
-def save_courses(_username, _courses) -> None:
-    makedirs(dirname(f"./cache/"), exist_ok=True)
-    with open(f"./cache/{_username}", "w") as file:
-        file.write(f"{b64encode(str(_courses).encode())}")
-    logger.info(f"缓存数据已存储至./{_username}.data")
-
-
-def get_courses(_driver, _username) -> list[Course]:
+def scrape_courses(_driver: WebDriver) -> List[Course]:
+    """
+    爬取"我的课程"列表（仅保留包含视频的课程）
+    Args:
+        _driver: 已登录的WebDriver实例
+    Returns:
+        有效课程列表
+    """
+    logger.info("爬取'我的课程'列表...")
     try:
-        with open(f"./cache/{_username}", "r") as file:
-            logger.info("正在获取缓存数据")
-            _courses = eval(b64decode(eval(file.read())))
-  
-        logger.info(f"发现了{len(_courses)}个需要观看的课程中的{sum(len(_course.videos) for _course in _courses)}个视频")
-        if input("是否需要刷新数据，需要请输入'Y',不需要请输入任意值[Y/任意值]") == "Y":
-            _courses = scrape_courses(_driver)
-        
-    except FileNotFoundError:
-        logger.info("未找到缓存数据")
-        _courses = scrape_courses(_driver)
+        course_menu = _driver.find_element(By.CLASS_NAME, "dropdown.nav-item.mycourse")
+        course_links = course_menu.find_elements(By.TAG_NAME, "a")
+    except NoSuchElementException:
+        logger.critical("未找到'我的课程'菜单，页面结构可能变更")
+        return []
 
-    save_courses(_username, _courses)
-    return _courses
+    raw_courses = []
+    for link in course_links:
+        try:
+            course_url = str(link.get_attribute("href")).strip()
+            course_name = str(link.get_attribute("title")).strip()
+            if course_url and "course/view.php" in course_url and course_name:
+                raw_courses.append(Course(name=course_name, url=course_url, videos=[]))
+        except Exception as e:
+            logger.debug(f"课程提取失败：{str(e)} | 跳过该课程")
+            continue
 
+    # 过滤有视频的课程
+    valid_courses = []
+    for course in raw_courses:
+        logger.info(f"处理课程：{course.name}")
+        course.videos = scrape_course_videos(_driver, course.url)
+        if course.videos:
+            valid_courses.append(course)
+
+    # 分配课程序号
+    for idx, course in enumerate(valid_courses, start=1):
+        course.index = idx
+
+    total_videos = sum(len(course.videos) for course in valid_courses)
+    logger.success(f"课程爬取完成：{len(valid_courses)} 个有效课程，总视频 {total_videos} 个")
+    return valid_courses
+
+
+def play_all_videos(_driver: WebDriver, _courses: List[Course]) -> None:
+    """
+    批量播放所有课程的未完成视频，按课程→视频顺序循环
+    Args:
+        _driver: WebDriver实例
+        _courses: 课程列表
+    """
+    logger.info("开始批量播放未完成视频...")
+    while True:
+        all_courses_finished = True
+
+        for course in _courses:
+            if course.is_finished:
+                logger.info(f"课程 {course.name} 已完成，跳过")
+                continue
+
+            all_courses_finished = False
+            logger.info(f"\n===== 处理课程 [{course.index}/{len(_courses)}]：{course.name} =====")
+
+            course_finished = True
+            for video in course.videos:
+                if not video.is_finished:
+                    course_finished = False
+                    index_prefix = f"[课程{course.index}/{len(_courses)}][视频{video.index}/{len(course.videos)}]"
+                    play_video(_driver, video, index_prefix)
+
+            course.is_finished = course_finished
+            if course_finished:
+                logger.success(f"课程 {course.name} 所有视频已完成！")
+
+        if all_courses_finished:
+            logger.success("所有课程视频均已播放完成！")
+            break
+
+
+def save_courses(user: str, courses: List[Course]) -> None:
+    """保存课程/视频进度到本地缓存（Base64加密）"""
+    cache_dir = path.join(PROJECT_ROOT, "cache")
+    makedirs(cache_dir, exist_ok=True)
+    cache_file = path.join(cache_dir, user)
+
+    try:
+        encoded = b64encode(str(courses).encode()).decode()
+        with open(cache_file, "w", encoding="utf-8") as f:
+            f.write(encoded)
+        logger.success("课程进度已保存至本地缓存")
+    except Exception as e:
+        logger.error(f"缓存保存失败：{str(e)}")
+
+
+def get_courses(_driver: WebDriver, _user: str) -> List[Course]:
+    """
+    获取课程列表（优先读取本地缓存，支持手动重新爬取）
+    Args:
+        _driver: 已登录的WebDriver实例
+        _user: 学号（缓存文件名）
+    Returns:
+        课程列表（含缓存进度或新爬取数据）
+    """
+    cache_file = path.join(PROJECT_ROOT, "cache", _user)
+
+    try:
+        with open(cache_file, "r", encoding="utf-8") as f:
+            encoded = f.read().strip()
+        courses = eval(b64decode(encoded).decode())
+        logger.info("读取本地课程缓存成功")
+
+        re_scrape = input("是否重新爬取课程列表？[Y/任意键否]：").strip().upper()
+        if re_scrape == "Y":
+            courses = scrape_courses(_driver)
+    except (FileNotFoundError, SyntaxError, NameError):
+        logger.info("本地课程缓存不存在/解析失败，重新爬取...")
+        courses = scrape_courses(_driver)
+
+    save_courses(_user, courses)
+    return courses
+
+
+# 主程序入口
 if __name__ == "__main__":
-    """
-    已经通过测试的课程:
-    四史
-    中华民族共同体概论
-    大学生劳动教育理论与实践
-    大学生心理健康教育
-    """
+    driver = None
+    courses = []
+    username = ""
+
     try:
-        # 配置日志
-        logger.add("./log/run.log", rotation="1 MB", compression="zip")
-        logger.info("启动程序")
-
-        # 获取用户名和密码
+        # 日志配置
+        log_dir = path.join(PROJECT_ROOT, "log")
+        makedirs(log_dir, exist_ok=True)
+        logger.add(
+            path.join(log_dir, "run.log"),
+            rotation="1MB",
+            compression="zip",
+            encoding="utf-8",
+            backtrace=True,
+            diagnose=True
+        )
+        logger.success(f"程序启动 | 系统：{platform}")
+        # 核心执行流程
         username, password = get_user_info()
-
-        # 实例化浏览器
         driver = get_web_driver()
-
-        # 登录到砺儒云平台
         login(driver, username, password)
-
-        # 获取视频数据
         courses = get_courses(driver, username)
-
-        # 逐个播放网课视频
         play_all_videos(driver, courses)
-    
+
     except NoSuchWindowException:
-        logger.critical("浏览器窗口被关闭")
-    
-    except Exception as ex:
-        logger.exception("发生了一个意料之外的错误:", ex)
-    
+        logger.critical("程序中断：浏览器窗口被手动关闭")
+    except KeyboardInterrupt:
+        logger.critical("程序中断：用户手动终止（Ctrl+C）")
+    except Exception as e:
+        logger.exception(f"程序异常终止：{str(e)}")
     finally:
-        try: driver.quit()                                      # type: ignore
-        except NameError: pass
-        try: save_courses(username, courses) # type: ignore
-        except NameError: pass
-        logger.info("退出程序")
+        # 收尾操作
+        if driver:
+            logger.info("关闭浏览器窗口...")
+            driver.quit()
+        if username and courses:
+            save_courses(username, courses)
+        logger.success("程序正常退出")
