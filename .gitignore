@@ -3,3 +3,6 @@
 /build
 /dist
 /cache
+/.venv
+/.vscode
+/cache.txt
